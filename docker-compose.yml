@@ -1,7 +1,6 @@
 services:
   food-records:
     build: .
-    container_name: food-records
     restart: unless-stopped
     environment:
       HOST: 0.0.0.0

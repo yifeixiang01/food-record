@@ -73,6 +73,19 @@ docker-compose.yml
 3. 浏览器清除该站点数据，或卸载后重新添加 PWA。
 4. 确认 Dokploy 部署的分支是 `main`，并且拉到了最新提交。
 
+如果 Dokploy 的“查看日志”报 `tail: cannot open ... No such file or directory`，这通常是 Dokploy 部署日志文件没有生成或已被清理，不一定是应用运行失败。可以在服务器上用容器日志排查：
+
+```bash
+docker ps -a
+docker logs <container_id_or_name> --tail 100
+```
+
+使用 Docker Compose 部署时，也可以查看服务日志：
+
+```bash
+docker compose logs food-records --tail 100
+```
+
 ## 功能
 
 - 密码登录，默认密码：`250830`
