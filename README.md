@@ -15,7 +15,7 @@ cd D:\项目生产基地\food_records
 npm start
 ```
 
-然后打开：
+然后打开： 
 
 ```text
 http://127.0.0.1:5173
