@@ -1,5 +1,6 @@
 const STORAGE_KEY = "food_records_pwa_v1";
 const API_BASE = "/api/records";
+const AUTH_BASE = "/api";
 const routes = ["dashboard", "record", "list"];
 const mealOptions = ["早餐", "早加", "中餐", "中加", "晚餐", "晚加"];
 const foodFields = [
@@ -18,6 +19,8 @@ const emptyFoods = foodFields.reduce((result, field) => {
 }, {});
 
 let currentRoute = "dashboard";
+let authenticated = false;
+let loginError = "";
 
 function pad2(value) {
   return value < 10 ? `0${value}` : `${value}`;
@@ -40,11 +43,49 @@ function writeRecords(records) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
 }
 
+async function checkSession() {
+  try {
+    const response = await fetch(`${AUTH_BASE}/session`, {
+      headers: { Accept: "application/json" }
+    });
+    if (!response.ok) return false;
+    const data = await response.json();
+    return !!data.authenticated;
+  } catch (error) {
+    return false;
+  }
+}
+
+async function login(password) {
+  const response = await fetch(`${AUTH_BASE}/login`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json"
+    },
+    body: JSON.stringify({ password })
+  });
+  return response.ok;
+}
+
+async function logout() {
+  await fetch(`${AUTH_BASE}/logout`, {
+    method: "POST"
+  });
+  authenticated = false;
+  loginError = "";
+  render();
+}
+
 async function loadRecords() {
   try {
     const response = await fetch(API_BASE, {
       headers: { Accept: "application/json" }
     });
+    if (response.status === 401) {
+      authenticated = false;
+      return [];
+    }
     if (!response.ok) throw new Error("Failed to load records");
     const data = await response.json();
     const records = Array.isArray(data.records) ? data.records.map(normalizeRecord) : [];
@@ -66,6 +107,10 @@ async function createRecord(record) {
       },
       body: JSON.stringify(normalizedRecord)
     });
+    if (response.status === 401) {
+      authenticated = false;
+      return { record: normalizedRecord, backend: false, unauthorized: true };
+    }
     if (!response.ok) throw new Error("Failed to save record");
     const data = await response.json();
     const savedRecord = normalizeRecord(data.record || normalizedRecord);
@@ -82,6 +127,10 @@ async function deleteRecord(id) {
     const response = await fetch(`${API_BASE}/${encodeURIComponent(id)}`, {
       method: "DELETE"
     });
+    if (response.status === 401) {
+      authenticated = false;
+      return;
+    }
     if (!response.ok) throw new Error("Failed to delete record");
   } catch (error) {
     // Local deletion still keeps the interface usable when the backend is offline.
@@ -94,6 +143,10 @@ async function clearRecords() {
     const response = await fetch(API_BASE, {
       method: "DELETE"
     });
+    if (response.status === 401) {
+      authenticated = false;
+      return;
+    }
     if (!response.ok) throw new Error("Failed to clear records");
   } catch (error) {
     // Local clearing still keeps the interface usable when the backend is offline.
@@ -125,6 +178,33 @@ function statusText(level) {
   if (level === "low") return "偏低";
   if (level === "normal") return "平稳";
   return "待记录";
+}
+
+function renderLogin() {
+  document.body.classList.add("locked");
+  return `
+    <section class="login-page">
+      <div class="login-card">
+        <div class="login-mark">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <div>
+          <h1 class="login-title">膳食与血糖记录</h1>
+          <p class="login-subtitle">输入访问密码后继续使用。</p>
+        </div>
+        <form id="login-form" class="login-form">
+          <label class="field">
+            <span class="label">访问密码</span>
+            <input class="input login-input" name="password" type="password" inputmode="numeric" autocomplete="current-password" placeholder="请输入密码" autofocus />
+          </label>
+          ${loginError ? `<div class="login-error">${loginError}</div>` : ""}
+          <button class="primary-button" type="submit">进入记录</button>
+        </form>
+      </div>
+    </section>
+  `;
 }
 
 function measured(records) {
@@ -234,7 +314,10 @@ function renderDashboard(records) {
         <h1 class="title">健康仪表盘</h1>
         <span class="subtitle">所有膳食、血糖和运动记录统计</span>
       </div>
-      <span class="status-pill ${stats.latestLevel}">${stats.latestStatus}</span>
+      <div class="header-actions">
+        <span class="status-pill ${stats.latestLevel}">${stats.latestStatus}</span>
+        <button class="text-button muted" type="button" data-action="logout">退出</button>
+      </div>
     </section>
 
     <section class="card dashboard-grid">
@@ -491,6 +574,11 @@ async function saveRecord(form) {
   }
 
   const result = await createRecord(record);
+  if (result.unauthorized) {
+    alert("登录已过期，请重新登录。");
+    await render();
+    return;
+  }
   form.reset();
   alert(result.backend ? "已保存到后端" : "后端不可用，已暂存本地");
 }
@@ -587,6 +675,14 @@ function setRoute(route) {
 
 async function render() {
   const app = document.getElementById("app");
+  if (!authenticated) authenticated = await checkSession();
+  if (!authenticated) {
+    app.innerHTML = renderLogin();
+    document.querySelectorAll(".tab").forEach((tab) => tab.classList.remove("active"));
+    return;
+  }
+
+  document.body.classList.remove("locked");
   const route = routes.includes(location.hash.replace("#", ""))
     ? location.hash.replace("#", "")
     : currentRoute;
@@ -615,6 +711,9 @@ document.addEventListener("click", async (event) => {
   if (action.dataset.action === "reset-form") {
     document.getElementById("record-form")?.reset();
   }
+  if (action.dataset.action === "logout") {
+    await logout();
+  }
   if (action.dataset.action === "delete") {
     await deleteRecord(action.dataset.id);
     await render();
@@ -641,6 +740,21 @@ document.addEventListener("click", async (event) => {
 });
 
 document.addEventListener("submit", async (event) => {
+  if (event.target.id === "login-form") {
+    event.preventDefault();
+    const password = new FormData(event.target).get("password");
+    const ok = await login(password);
+    if (!ok) {
+      loginError = "密码不正确，请重新输入。";
+      authenticated = false;
+      await render();
+      return;
+    }
+    loginError = "";
+    authenticated = true;
+    await render();
+  }
+
   if (event.target.id === "record-form") {
     event.preventDefault();
     await saveRecord(event.target);

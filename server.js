@@ -1,9 +1,14 @@
 const http = require("http");
+const crypto = require("crypto");
 const fs = require("fs/promises");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || "0.0.0.0";
+const APP_PASSWORD = process.env.APP_PASSWORD || "250830";
+const AUTH_SECRET = process.env.AUTH_SECRET || `food-records-${APP_PASSWORD}`;
+const SESSION_COOKIE = "food_records_session";
+const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 const ROOT = __dirname;
 const PWA_ROOT = path.join(ROOT, "pwa");
 const DATA_FILE = path.join(ROOT, "data", "records.json");
@@ -51,6 +56,66 @@ function sendJson(res, status, body) {
   res.end(JSON.stringify(body));
 }
 
+function parseCookies(req) {
+  const header = req.headers.cookie || "";
+  return header.split(";").reduce((cookies, part) => {
+    const index = part.indexOf("=");
+    if (index < 0) return cookies;
+    const key = part.slice(0, index).trim();
+    const value = part.slice(index + 1).trim();
+    cookies[key] = decodeURIComponent(value);
+    return cookies;
+  }, {});
+}
+
+function signPayload(payload) {
+  return crypto.createHmac("sha256", AUTH_SECRET).update(payload).digest("base64url");
+}
+
+function createSessionToken() {
+  const payload = Buffer.from(JSON.stringify({ iat: Date.now() })).toString("base64url");
+  return `${payload}.${signPayload(payload)}`;
+}
+
+function verifySessionToken(token) {
+  if (!token || !token.includes(".")) return false;
+  const [payload, signature] = token.split(".");
+  const expected = signPayload(payload);
+  if (
+    signature.length !== expected.length ||
+    !crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))
+  ) {
+    return false;
+  }
+
+  try {
+    const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+    return Date.now() - Number(data.iat || 0) < SESSION_MAX_AGE * 1000;
+  } catch (error) {
+    return false;
+  }
+}
+
+function isAuthenticated(req) {
+  const cookies = parseCookies(req);
+  return verifySessionToken(cookies[SESSION_COOKIE]);
+}
+
+function setSessionCookie(res) {
+  const token = createSessionToken();
+  res.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=${encodeURIComponent(token)}; HttpOnly; Path=/; SameSite=Lax; Max-Age=${SESSION_MAX_AGE}`
+  );
+}
+
+function clearSessionCookie(res) {
+  res.setHeader(
+    "Set-Cookie",
+    `${SESSION_COOKIE}=; HttpOnly; Path=/; SameSite=Lax; Max-Age=0`
+  );
+}
+
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -82,6 +147,34 @@ function normalizeRecord(record) {
 async function handleApi(req, res, url) {
   if (url.pathname === "/api/health" && req.method === "GET") {
     sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (url.pathname === "/api/session" && req.method === "GET") {
+    sendJson(res, 200, { authenticated: isAuthenticated(req) });
+    return true;
+  }
+
+  if (url.pathname === "/api/login" && req.method === "POST") {
+    const body = await readBody(req);
+    const payload = body ? JSON.parse(body) : {};
+    if (payload.password === APP_PASSWORD) {
+      setSessionCookie(res);
+      sendJson(res, 200, { ok: true });
+    } else {
+      sendJson(res, 401, { error: "Invalid password" });
+    }
+    return true;
+  }
+
+  if (url.pathname === "/api/logout" && req.method === "POST") {
+    clearSessionCookie(res);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (!isAuthenticated(req)) {
+    sendJson(res, 401, { error: "Unauthorized" });
     return true;
   }
 

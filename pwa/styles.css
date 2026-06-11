@@ -40,6 +40,14 @@ button {
   padding-bottom: calc(76px + env(safe-area-inset-bottom));
 }
 
+body.locked .app-shell {
+  padding-bottom: 0;
+}
+
+body.locked .tabbar {
+  display: none;
+}
+
 .page {
   width: min(920px, 100%);
   margin: 0 auto;
@@ -77,6 +85,13 @@ button {
 
 .subtitle-row .subtitle {
   margin: 0;
+}
+
+.header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
 }
 
 .card {
@@ -193,6 +208,86 @@ button {
   padding: 0;
   background: transparent;
   color: var(--green);
+}
+
+.text-button.muted {
+  color: var(--muted);
+}
+
+.login-page {
+  display: flex;
+  min-height: 100vh;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background:
+    linear-gradient(180deg, rgba(35, 115, 91, 0.08), rgba(247, 248, 245, 0) 42%),
+    var(--bg);
+}
+
+.login-card {
+  width: min(420px, 100%);
+  padding: 30px 24px 24px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 24px 60px rgba(45, 74, 60, 0.14);
+}
+
+.login-mark {
+  display: flex;
+  width: 64px;
+  height: 64px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  margin-bottom: 22px;
+  border-radius: 18px;
+  background: var(--green);
+}
+
+.login-mark span {
+  width: 8px;
+  height: 26px;
+  border-radius: 999px;
+  background: #ffffff;
+}
+
+.login-mark span:nth-child(2) {
+  height: 36px;
+  background: #dcebe4;
+}
+
+.login-title {
+  margin: 0;
+  color: #18262f;
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.login-subtitle {
+  margin: 10px 0 24px;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.login-form {
+  display: grid;
+  gap: 16px;
+}
+
+.login-input {
+  height: 52px;
+  font-size: 20px;
+  letter-spacing: 0.08em;
+}
+
+.login-error {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--high-soft);
+  color: var(--high);
+  font-size: 14px;
 }
 
 .sticky-actions {

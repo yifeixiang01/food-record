@@ -6,6 +6,8 @@ services:
     environment:
       HOST: 0.0.0.0
       PORT: 5173
+      APP_PASSWORD: "250830"
+      AUTH_SECRET: "change-this-to-a-long-random-string"
     ports:
       - "5173:5173"
     volumes:

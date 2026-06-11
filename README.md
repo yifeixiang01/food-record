@@ -56,6 +56,8 @@ docker-compose.yml
 - 环境变量：
   - `HOST=0.0.0.0`
   - `PORT=5173`
+  - `APP_PASSWORD=250830`
+  - `AUTH_SECRET=请设置为随机长字符串`
 - 持久化目录：`/app/data`
 
 健康检查接口：
@@ -66,6 +68,7 @@ docker-compose.yml
 
 ## 功能
 
+- 密码登录，默认密码：`250830`
 - 首页统计所有记录
 - 记录当天膳食、血糖和运动
 - 查看记录列表
@@ -79,6 +82,9 @@ docker-compose.yml
 ## API
 
 - `GET /api/health`：健康检查
+- `GET /api/session`：查询登录状态
+- `POST /api/login`：登录
+- `POST /api/logout`：退出登录
 - `GET /api/records`：读取全部记录
 - `POST /api/records`：新增或覆盖一条记录
 - `DELETE /api/records/:id`：删除单条记录
