@@ -1,0 +1,9 @@
+{
+  "name": "food-records-pwa",
+  "version": "1.0.0",
+  "private": true,
+  "description": "膳食日志及血糖测量表 PWA with a local web backend",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

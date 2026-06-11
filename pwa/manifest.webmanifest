@@ -1,0 +1,22 @@
+{
+  "name": "膳食日志及血糖测量表",
+  "short_name": "膳食血糖",
+  "description": "记录每日膳食、血糖测量和运动时间的 PWA 应用。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f8f5",
+  "theme_color": "#f7f8f5",
+  "icons": [
+    {
+      "src": "./icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "./icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

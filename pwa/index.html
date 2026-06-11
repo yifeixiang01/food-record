@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#f7f8f5" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="膳食血糖" />
+    <title>膳食与血糖记录</title>
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <main id="app" class="page"></main>
+      <nav class="tabbar" aria-label="主导航">
+        <button class="tab active" data-route="dashboard" type="button">
+          <span class="tab-icon">⌂</span>
+          <span>首页</span>
+        </button>
+        <button class="tab" data-route="record" type="button">
+          <span class="tab-icon">□</span>
+          <span>记录</span>
+        </button>
+        <button class="tab" data-route="list" type="button">
+          <span class="tab-icon">≡</span>
+          <span>列表</span>
+        </button>
+      </nav>
+    </div>
+    <script src="./app.js"></script>
+  </body>
+</html>
