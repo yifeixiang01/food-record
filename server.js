@@ -3,7 +3,7 @@ const fs = require("fs/promises");
 const path = require("path");
 
 const PORT = Number(process.env.PORT || 5173);
-const HOST = process.env.HOST || "127.0.0.1";
+const HOST = process.env.HOST || "0.0.0.0";
 const ROOT = __dirname;
 const PWA_ROOT = path.join(ROOT, "pwa");
 const DATA_FILE = path.join(ROOT, "data", "records.json");
@@ -80,6 +80,11 @@ function normalizeRecord(record) {
 }
 
 async function handleApi(req, res, url) {
+  if (url.pathname === "/api/health" && req.method === "GET") {
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
   if (url.pathname === "/api/records" && req.method === "GET") {
     const records = await readRecords();
     sendJson(res, 200, { records });

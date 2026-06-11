@@ -21,6 +21,49 @@ npm start
 http://127.0.0.1:5173
 ```
 
+## Dokploy 部署
+
+项目已经包含 `Dockerfile` 和 `docker-compose.yml`，适合在 Dokploy 中自动部署。
+
+### 推荐：Docker Compose
+
+在 Dokploy 中创建应用时选择 Docker Compose，仓库根目录使用本项目目录，Compose 文件使用：
+
+```text
+docker-compose.yml
+```
+
+服务默认监听：
+
+```text
+5173
+```
+
+需要持久化的数据目录：
+
+```text
+/app/data
+```
+
+`docker-compose.yml` 已配置命名卷 `food-records-data`，记录会保存到容器内 `/app/data/records.json`，重启后不会丢失。
+
+### Dockerfile 部署
+
+如果选择 Dockerfile 部署：
+
+- Dockerfile：`Dockerfile`
+- 容器端口：`5173`
+- 环境变量：
+  - `HOST=0.0.0.0`
+  - `PORT=5173`
+- 持久化目录：`/app/data`
+
+健康检查接口：
+
+```text
+/api/health
+```
+
 ## 功能
 
 - 首页统计所有记录
@@ -35,6 +78,7 @@ http://127.0.0.1:5173
 
 ## API
 
+- `GET /api/health`：健康检查
 - `GET /api/records`：读取全部记录
 - `POST /api/records`：新增或覆盖一条记录
 - `DELETE /api/records/:id`：删除单条记录
