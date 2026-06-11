@@ -66,6 +66,13 @@ docker-compose.yml
 /api/health
 ```
 
+如果 Dokploy 显示部署成功但浏览器仍是旧页面：
+
+1. 打开 `/api/health`，确认返回的 `version` 是最新版本。
+2. 在 Dokploy 中执行 Rebuild / Redeploy，并关闭构建缓存。
+3. 浏览器清除该站点数据，或卸载后重新添加 PWA。
+4. 确认 Dokploy 部署的分支是 `main`，并且拉到了最新提交。
+
 ## 功能
 
 - 密码登录，默认密码：`250830`
