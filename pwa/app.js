@@ -1,7 +1,9 @@
 const STORAGE_KEY = "food_records_pwa_v1";
+const CONTRACTION_STORAGE_KEY = "contractions_pwa_v1";
 const API_BASE = "/api/records";
+const CONTRACTION_API_BASE = "/api/contractions";
 const AUTH_BASE = "/api";
-const routes = ["dashboard", "record", "list"];
+const routes = ["dashboard", "record", "list", "contractions"];
 const mealOptions = ["早餐", "早加", "中餐", "中加", "晚餐", "晚加"];
 const foodFields = [
   { key: "grain", label: "谷类", placeholder: "米饭 100g / 杂粮面包 25g" },
@@ -21,6 +23,8 @@ const emptyFoods = foodFields.reduce((result, field) => {
 let currentRoute = "dashboard";
 let authenticated = false;
 let loginError = "";
+let activeContraction = null;
+let timerId = null;
 
 function pad2(value) {
   return value < 10 ? `0${value}` : `${value}`;
@@ -41,6 +45,18 @@ function readRecords() {
 
 function writeRecords(records) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+}
+
+function readContractionsLocal() {
+  try {
+    return JSON.parse(localStorage.getItem(CONTRACTION_STORAGE_KEY) || "[]");
+  } catch (error) {
+    return [];
+  }
+}
+
+function writeContractionsLocal(records) {
+  localStorage.setItem(CONTRACTION_STORAGE_KEY, JSON.stringify(records));
 }
 
 async function checkSession() {
@@ -154,6 +170,88 @@ async function clearRecords() {
   writeRecords([]);
 }
 
+function normalizeContraction(record) {
+  return {
+    id: record.id || `${Date.now()}`,
+    date: record.date || today(),
+    startAt: record.startAt || "",
+    endAt: record.endAt || "",
+    durationSeconds: Number(record.durationSeconds || 0),
+    intervalSeconds: record.intervalSeconds === null || record.intervalSeconds === undefined
+      ? null
+      : Number(record.intervalSeconds),
+    note: record.note || ""
+  };
+}
+
+async function loadContractions() {
+  try {
+    const response = await fetch(CONTRACTION_API_BASE, {
+      headers: { Accept: "application/json" }
+    });
+    if (response.status === 401) {
+      authenticated = false;
+      return [];
+    }
+    if (!response.ok) throw new Error("Failed to load contractions");
+    const data = await response.json();
+    const contractions = Array.isArray(data.contractions)
+      ? data.contractions.map(normalizeContraction)
+      : [];
+    writeContractionsLocal(contractions);
+    return contractions;
+  } catch (error) {
+    return readContractionsLocal().map(normalizeContraction);
+  }
+}
+
+async function createContraction(record) {
+  const normalized = normalizeContraction(record);
+  try {
+    const response = await fetch(CONTRACTION_API_BASE, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json"
+      },
+      body: JSON.stringify(normalized)
+    });
+    if (response.status === 401) {
+      authenticated = false;
+      return { contraction: normalized, backend: false, unauthorized: true };
+    }
+    if (!response.ok) throw new Error("Failed to save contraction");
+    const data = await response.json();
+    const saved = normalizeContraction(data.contraction || normalized);
+    writeContractionsLocal([
+      saved,
+      ...readContractionsLocal().filter((item) => item.id !== saved.id)
+    ]);
+    return { contraction: saved, backend: true };
+  } catch (error) {
+    writeContractionsLocal([
+      normalized,
+      ...readContractionsLocal().filter((item) => item.id !== normalized.id)
+    ]);
+    return { contraction: normalized, backend: false };
+  }
+}
+
+async function deleteContraction(id) {
+  try {
+    const response = await fetch(`${CONTRACTION_API_BASE}/${encodeURIComponent(id)}`, {
+      method: "DELETE"
+    });
+    if (response.status === 401) {
+      authenticated = false;
+      return;
+    }
+  } catch (error) {
+    // Keep local deletion available while offline.
+  }
+  writeContractionsLocal(readContractionsLocal().filter((record) => record.id !== id));
+}
+
 function normalizeRecord(record) {
   return {
     ...record,
@@ -224,6 +322,50 @@ function uniqueDates(records) {
     if (!dates.includes(record.date)) dates.push(record.date);
   });
   return dates;
+}
+
+function formatClock(value) {
+  if (!value) return "--";
+  const date = new Date(value);
+  return `${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`;
+}
+
+function formatDuration(seconds) {
+  const safeSeconds = Math.max(0, Number(seconds || 0));
+  const minutes = Math.floor(safeSeconds / 60);
+  const rest = safeSeconds % 60;
+  if (minutes <= 0) return `${rest}秒`;
+  return `${minutes}分${pad2(rest)}秒`;
+}
+
+function todayContractions(contractions) {
+  return contractions
+    .map(normalizeContraction)
+    .filter((record) => record.date === today())
+    .sort((a, b) => Number(b.id) - Number(a.id));
+}
+
+function buildContractionStats(contractions) {
+  const todayItems = todayContractions(contractions);
+  const recent = todayItems[0];
+  const durations = todayItems.map((item) => Number(item.durationSeconds || 0)).filter(Boolean);
+  const intervals = todayItems.map((item) => Number(item.intervalSeconds || 0)).filter(Boolean);
+  const averageDuration = durations.length
+    ? Math.round(durations.reduce((sum, value) => sum + value, 0) / durations.length)
+    : 0;
+  const averageInterval = intervals.length
+    ? Math.round(intervals.reduce((sum, value) => sum + value, 0) / intervals.length)
+    : 0;
+
+  return {
+    todayItems,
+    count: todayItems.length,
+    recentTime: recent ? formatClock(recent.startAt) : "--",
+    recentDuration: recent ? formatDuration(recent.durationSeconds) : "--",
+    recentInterval: recent && recent.intervalSeconds ? formatDuration(recent.intervalSeconds) : "--",
+    averageDuration: averageDuration ? formatDuration(averageDuration) : "--",
+    averageInterval: averageInterval ? formatDuration(averageInterval) : "--"
+  };
 }
 
 function buildAllStats(records) {
@@ -305,8 +447,9 @@ function escapeHtml(value) {
     .replace(/\n/g, "<br/>");
 }
 
-function renderDashboard(records) {
+function renderDashboard(records, contractions) {
   const stats = buildAllStats(records);
+  const contractionStats = buildContractionStats(contractions);
 
   return `
     <section class="header">
@@ -347,6 +490,16 @@ function renderDashboard(records) {
       </div>
       <div class="meal-dots" style="margin-top: 14px;">
         ${stats.today.meals.map((meal) => `<span class="meal-dot ${meal.active ? "active" : ""}">${meal.name}</span>`).join("")}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">今日宫缩</h2>
+      <div class="metric-grid">
+        ${metric(contractionStats.count, "今日次数")}
+        ${metric(contractionStats.recentInterval, "最近间隔")}
+        ${metric(contractionStats.averageDuration, "平均持续")}
+        ${metric(contractionStats.recentTime, "最近一次")}
       </div>
     </section>
 
@@ -485,6 +638,65 @@ function renderList(records) {
     ${records.length ? records.map(renderRecordCard).join("") : `
       <section class="empty">暂无记录，请到“记录”页填写当天日志。</section>
     `}
+  `;
+}
+
+function renderContractions(contractions) {
+  const stats = buildContractionStats(contractions);
+  const elapsed = activeContraction
+    ? Math.floor((Date.now() - activeContraction.startMs) / 1000)
+    : 0;
+
+  return `
+    <section class="header">
+      <div>
+        <h1 class="title">宫缩计时</h1>
+        <span class="subtitle">记录开始、结束、持续时长和间隔。</span>
+      </div>
+    </section>
+
+    <section class="card contraction-hero">
+      <div class="contraction-timer" id="contraction-timer">${activeContraction ? formatDuration(elapsed) : "准备记录"}</div>
+      <button class="contraction-button ${activeContraction ? "active" : ""}" type="button" data-action="${activeContraction ? "stop-contraction" : "start-contraction"}">
+        ${activeContraction ? "结束宫缩" : "开始宫缩"}
+      </button>
+      <div class="contraction-actions">
+        <button class="secondary-button" type="button" data-action="quick-contraction" data-seconds="30">补记30秒</button>
+        <button class="secondary-button" type="button" data-action="quick-contraction" data-seconds="60">补记60秒</button>
+        <button class="secondary-button" type="button" data-action="quick-contraction" data-seconds="90">补记90秒</button>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">今日统计</h2>
+      <div class="metric-grid">
+        ${metric(stats.count, "今日次数")}
+        ${metric(stats.recentInterval, "最近间隔")}
+        ${metric(stats.averageDuration, "平均持续")}
+        ${metric(stats.averageInterval, "平均间隔")}
+      </div>
+    </section>
+
+    <section class="card">
+      <h2 class="card-title">今日记录</h2>
+      ${stats.todayItems.length ? stats.todayItems.map(renderContractionCard).join("") : `<div class="empty">暂无宫缩记录。</div>`}
+    </section>
+  `;
+}
+
+function renderContractionCard(record) {
+  return `
+    <article class="contraction-card">
+      <div>
+        <strong>${formatClock(record.startAt)} - ${formatClock(record.endAt)}</strong>
+        <span>持续 ${formatDuration(record.durationSeconds)} · 间隔 ${record.intervalSeconds ? formatDuration(record.intervalSeconds) : "--"}</span>
+      </div>
+      <div class="contraction-card-actions">
+        <button class="text-button" type="button" data-action="adjust-contraction" data-id="${record.id}" data-field="start" data-delta="-10">开始-10秒</button>
+        <button class="text-button" type="button" data-action="adjust-contraction" data-id="${record.id}" data-field="end" data-delta="10">结束+10秒</button>
+        <button class="danger-button" type="button" data-action="delete-contraction" data-id="${record.id}">删除</button>
+      </div>
+    </article>
   `;
 }
 
@@ -687,11 +899,13 @@ async function render() {
     ? location.hash.replace("#", "")
     : currentRoute;
   currentRoute = route;
-  const records = route === "record" ? [] : await loadRecords();
+  const records = route === "record" || route === "contractions" ? [] : await loadRecords();
+  const contractions = route === "record" ? [] : await loadContractions();
 
   if (route === "record") app.innerHTML = renderRecord();
   if (route === "list") app.innerHTML = renderList(records);
-  if (route === "dashboard") app.innerHTML = renderDashboard(records);
+  if (route === "dashboard") app.innerHTML = renderDashboard(records, contractions);
+  if (route === "contractions") app.innerHTML = renderContractions(contractions);
 
   document.querySelectorAll(".tab").forEach((tab) => {
     tab.classList.toggle("active", tab.dataset.route === currentRoute);
@@ -737,6 +951,24 @@ document.addEventListener("click", async (event) => {
   if (action.dataset.action === "export") {
     exportSelectedDates();
   }
+  if (action.dataset.action === "start-contraction") {
+    activeContraction = { startMs: Date.now() };
+    startTimer();
+    await render();
+  }
+  if (action.dataset.action === "stop-contraction") {
+    await stopContraction();
+  }
+  if (action.dataset.action === "quick-contraction") {
+    await quickContraction(Number(action.dataset.seconds));
+  }
+  if (action.dataset.action === "delete-contraction") {
+    await deleteContraction(action.dataset.id);
+    await render();
+  }
+  if (action.dataset.action === "adjust-contraction") {
+    await adjustContraction(action.dataset.id, action.dataset.field, Number(action.dataset.delta));
+  }
 });
 
 document.addEventListener("submit", async (event) => {
@@ -774,3 +1006,72 @@ if ("serviceWorker" in navigator) {
 }
 
 setRoute(location.hash.replace("#", "") || "dashboard");
+
+function startTimer() {
+  if (timerId) clearInterval(timerId);
+  timerId = setInterval(() => {
+    const timer = document.getElementById("contraction-timer");
+    if (timer && activeContraction) {
+      const elapsed = Math.floor((Date.now() - activeContraction.startMs) / 1000);
+      timer.textContent = formatDuration(elapsed);
+    }
+  }, 1000);
+}
+
+async function stopContraction() {
+  if (!activeContraction) return;
+  const endMs = Date.now();
+  const durationSeconds = Math.max(1, Math.round((endMs - activeContraction.startMs) / 1000));
+  await saveContraction(activeContraction.startMs, endMs, durationSeconds);
+  activeContraction = null;
+  if (timerId) clearInterval(timerId);
+  timerId = null;
+  await render();
+}
+
+async function quickContraction(seconds) {
+  const endMs = Date.now();
+  const startMs = endMs - seconds * 1000;
+  await saveContraction(startMs, endMs, seconds);
+  await render();
+}
+
+async function saveContraction(startMs, endMs, durationSeconds) {
+  const existing = await loadContractions();
+  const sameDay = todayContractions(existing).sort((a, b) => Number(a.id) - Number(b.id));
+  const previous = sameDay[sameDay.length - 1];
+  const intervalSeconds = previous
+    ? Math.max(0, Math.round((startMs - new Date(previous.startAt).getTime()) / 1000))
+    : null;
+  const result = await createContraction({
+    id: `${Date.now()}`,
+    date: today(),
+    startAt: new Date(startMs).toISOString(),
+    endAt: new Date(endMs).toISOString(),
+    durationSeconds,
+    intervalSeconds,
+    note: ""
+  });
+  if (result.unauthorized) {
+    alert("登录已过期，请重新登录。");
+    await render();
+  }
+}
+
+async function adjustContraction(id, field, deltaSeconds) {
+  const contractions = await loadContractions();
+  const target = contractions.find((item) => item.id === id);
+  if (!target) return;
+  const startMs = new Date(target.startAt).getTime();
+  const endMs = new Date(target.endAt).getTime();
+  const nextStart = field === "start" ? startMs + deltaSeconds * 1000 : startMs;
+  const nextEnd = field === "end" ? endMs + deltaSeconds * 1000 : endMs;
+  const durationSeconds = Math.max(1, Math.round((nextEnd - nextStart) / 1000));
+  await createContraction({
+    ...target,
+    startAt: new Date(nextStart).toISOString(),
+    endAt: new Date(nextEnd).toISOString(),
+    durationSeconds
+  });
+  await render();
+}

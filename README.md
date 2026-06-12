@@ -91,6 +91,7 @@ docker compose logs food-records --tail 100
 - 密码登录，默认密码：`250830`
 - 首页统计所有记录
 - 记录当天膳食、血糖和运动
+- 宫缩计时、补记和今日宫缩统计
 - 查看记录列表
 - 多选日期导出 Excel
 - 浏览器本地离线缓存
@@ -109,3 +110,7 @@ docker compose logs food-records --tail 100
 - `POST /api/records`：新增或覆盖一条记录
 - `DELETE /api/records/:id`：删除单条记录
 - `DELETE /api/records`：清空全部记录
+- `GET /api/contractions`：读取全部宫缩记录
+- `POST /api/contractions`：新增或覆盖一条宫缩记录
+- `DELETE /api/contractions/:id`：删除单条宫缩记录
+- `DELETE /api/contractions`：清空全部宫缩记录

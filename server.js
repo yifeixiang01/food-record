@@ -5,7 +5,7 @@ const path = require("path");
 
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || "0.0.0.0";
-const APP_VERSION = "2026-06-11-login-cache-fix";
+const APP_VERSION = "2026-06-12-contractions";
 const APP_PASSWORD = process.env.APP_PASSWORD || "250830";
 const AUTH_SECRET = process.env.AUTH_SECRET || `food-records-${APP_PASSWORD}`;
 const SESSION_COOKIE = "food_records_session";
@@ -13,6 +13,7 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
 const ROOT = __dirname;
 const PWA_ROOT = path.join(ROOT, "pwa");
 const DATA_FILE = path.join(ROOT, "data", "records.json");
+const CONTRACTIONS_FILE = path.join(ROOT, "data", "contractions.json");
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -33,9 +34,18 @@ async function ensureDataFile() {
   }
 }
 
-async function readRecords() {
-  await ensureDataFile();
-  const raw = await fs.readFile(DATA_FILE, "utf8");
+async function ensureJsonFile(filePath) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  try {
+    await fs.access(filePath);
+  } catch (error) {
+    await fs.writeFile(filePath, "[]", "utf8");
+  }
+}
+
+async function readJsonArray(filePath) {
+  await ensureJsonFile(filePath);
+  const raw = await fs.readFile(filePath, "utf8");
   try {
     const records = JSON.parse(raw);
     return Array.isArray(records) ? records : [];
@@ -44,9 +54,25 @@ async function readRecords() {
   }
 }
 
+async function writeJsonArray(filePath, records) {
+  await ensureJsonFile(filePath);
+  await fs.writeFile(filePath, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+}
+
+async function readRecords() {
+  return readJsonArray(DATA_FILE);
+}
+
 async function writeRecords(records) {
-  await ensureDataFile();
-  await fs.writeFile(DATA_FILE, `${JSON.stringify(records, null, 2)}\n`, "utf8");
+  await writeJsonArray(DATA_FILE, records);
+}
+
+async function readContractions() {
+  return readJsonArray(CONTRACTIONS_FILE);
+}
+
+async function writeContractions(records) {
+  await writeJsonArray(CONTRACTIONS_FILE, records);
 }
 
 function sendJson(res, status, body) {
@@ -145,6 +171,20 @@ function normalizeRecord(record) {
   };
 }
 
+function normalizeContraction(record) {
+  return {
+    id: record.id || `${Date.now()}`,
+    date: record.date || "",
+    startAt: record.startAt || "",
+    endAt: record.endAt || "",
+    durationSeconds: Number(record.durationSeconds || 0),
+    intervalSeconds: record.intervalSeconds === null || record.intervalSeconds === undefined
+      ? null
+      : Number(record.intervalSeconds),
+    note: record.note || ""
+  };
+}
+
 async function handleApi(req, res, url) {
   if (url.pathname === "/api/health" && req.method === "GET") {
     sendJson(res, 200, { ok: true, version: APP_VERSION });
@@ -207,6 +247,41 @@ async function handleApi(req, res, url) {
     const id = decodeURIComponent(deleteMatch[1]);
     const records = await readRecords();
     await writeRecords(records.filter((record) => record.id !== id));
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  if (url.pathname === "/api/contractions" && req.method === "GET") {
+    const contractions = await readContractions();
+    sendJson(res, 200, { contractions });
+    return true;
+  }
+
+  if (url.pathname === "/api/contractions" && req.method === "POST") {
+    const body = await readBody(req);
+    const payload = body ? JSON.parse(body) : {};
+    const contraction = normalizeContraction(payload);
+    const contractions = await readContractions();
+    const nextContractions = [
+      contraction,
+      ...contractions.filter((item) => item.id !== contraction.id)
+    ];
+    await writeContractions(nextContractions);
+    sendJson(res, 201, { contraction });
+    return true;
+  }
+
+  if (url.pathname === "/api/contractions" && req.method === "DELETE") {
+    await writeContractions([]);
+    sendJson(res, 200, { ok: true });
+    return true;
+  }
+
+  const contractionDeleteMatch = url.pathname.match(/^\/api\/contractions\/([^/]+)$/);
+  if (contractionDeleteMatch && req.method === "DELETE") {
+    const id = decodeURIComponent(contractionDeleteMatch[1]);
+    const contractions = await readContractions();
+    await writeContractions(contractions.filter((record) => record.id !== id));
     sendJson(res, 200, { ok: true });
     return true;
   }
