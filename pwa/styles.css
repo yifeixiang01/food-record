@@ -595,6 +595,25 @@ body.locked .tabbar {
   text-align: center;
 }
 
+.site-footer {
+  width: min(920px, 100%);
+  margin: 0 auto;
+  padding: 6px 16px 18px;
+  color: var(--muted);
+  font-size: 12px;
+  text-align: center;
+}
+
+.site-footer a {
+  color: var(--muted);
+  text-decoration: none;
+}
+
+.site-footer a:active,
+.site-footer a:hover {
+  color: var(--green);
+}
+
 .tabbar {
   position: fixed;
   right: 0;
