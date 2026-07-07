@@ -467,6 +467,27 @@ body.locked .tabbar {
   box-shadow: var(--shadow);
 }
 
+.record-date-group {
+  margin-bottom: 18px;
+}
+
+.record-date-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 0 2px;
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.record-date-header span:first-child {
+  color: #25323b;
+  font-size: 17px;
+}
+
 .record-top {
   display: flex;
   justify-content: space-between;

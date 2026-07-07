@@ -133,8 +133,7 @@ async function createRecord(record) {
     writeRecords([savedRecord, ...readRecords().filter((item) => item.id !== savedRecord.id)]);
     return { record: savedRecord, backend: true };
   } catch (error) {
-    writeRecords([normalizedRecord, ...readRecords().filter((item) => item.id !== normalizedRecord.id)]);
-    return { record: normalizedRecord, backend: false };
+    return { record: normalizedRecord, backend: false, error };
   }
 }
 
@@ -322,6 +321,29 @@ function uniqueDates(records) {
     if (!dates.includes(record.date)) dates.push(record.date);
   });
   return dates;
+}
+
+function mealIndex(meal) {
+  const index = mealOptions.indexOf(meal);
+  return index >= 0 ? index : mealOptions.length;
+}
+
+function sortRecordsByDate(records) {
+  return records.map(normalizeRecord).sort((a, b) => {
+    if (a.date !== b.date) return b.date.localeCompare(a.date);
+    const mealDiff = mealIndex(a.meal) - mealIndex(b.meal);
+    if (mealDiff) return mealDiff;
+    const timeDiff = `${a.mealTime || ""}`.localeCompare(`${b.mealTime || ""}`);
+    if (timeDiff) return timeDiff;
+    return Number(b.id) - Number(a.id);
+  });
+}
+
+function groupRecordsByDate(records) {
+  return uniqueDates(records).map((date) => ({
+    date,
+    records: records.filter((record) => record.date === date)
+  }));
 }
 
 function formatClock(value) {
@@ -556,9 +578,9 @@ function renderRecord() {
   return `
     <section class="header">
       <div>
-        <h1 class="title">记录当天日志</h1>
+        <h1 class="title">记录日志</h1>
         <div class="subtitle-row">
-          <span class="subtitle">${today()} 的膳食、血糖和运动</span>
+          <span class="subtitle">可选择日期补签膳食、血糖和运动</span>
           <button class="text-button" type="button" data-action="reset-form">重置</button>
         </div>
       </div>
@@ -568,7 +590,7 @@ function renderRecord() {
       <section class="card date-grid">
         <label class="field">
           <span class="label">日期</span>
-          <span class="readonly">${today()}</span>
+          <input class="input" name="date" type="date" value="${today()}" max="${today()}" />
         </label>
         <label class="field">
           <span class="label">餐次</span>
@@ -621,8 +643,9 @@ function renderRecord() {
 }
 
 function renderList(records) {
-  records = records.map(normalizeRecord).sort((a, b) => Number(b.id) - Number(a.id));
+  records = sortRecordsByDate(records);
   const dates = uniqueDates(records);
+  const groupedRecords = groupRecordsByDate(records);
 
   return `
     <section class="header">
@@ -635,7 +658,7 @@ function renderList(records) {
 
     ${records.length ? renderExportPanel(dates, records) : ""}
 
-    ${records.length ? records.map(renderRecordCard).join("") : `
+    ${records.length ? groupedRecords.map(renderRecordDateGroup).join("") : `
       <section class="empty">暂无记录，请到“记录”页填写当天日志。</section>
     `}
   `;
@@ -761,6 +784,18 @@ function renderRecordCard(record) {
   `;
 }
 
+function renderRecordDateGroup(group) {
+  return `
+    <section class="record-date-group">
+      <div class="record-date-header">
+        <span>${group.date}</span>
+        <span>${group.records.length} 条</span>
+      </div>
+      ${group.records.map(renderRecordCard).join("")}
+    </section>
+  `;
+}
+
 async function saveRecord(form) {
   const formData = new FormData(form);
   const foods = {};
@@ -770,7 +805,7 @@ async function saveRecord(form) {
 
   const record = normalizeRecord({
     id: `${Date.now()}`,
-    date: today(),
+    date: formData.get("date") || today(),
     meal: formData.get("meal"),
     mealTime: formData.get("mealTime"),
     foods,
@@ -791,8 +826,12 @@ async function saveRecord(form) {
     await render();
     return;
   }
+  if (!result.backend) {
+    alert("后端保存失败，请稍后重试。");
+    return;
+  }
   form.reset();
-  alert(result.backend ? "已保存到后端" : "后端不可用，已暂存本地");
+  alert("已保存到后端");
 }
 
 function buildExcelHtml(records, selectedDates) {
@@ -800,50 +839,158 @@ function buildExcelHtml(records, selectedDates) {
   selectedDates.forEach((date) => {
     selectedMap[date] = true;
   });
-  const rows = records.filter((record) => selectedMap[record.date]);
-  const foodHeaders = foodFields.map((field) => `<th>${field.label}</th>`).join("");
+  const mealOrder = mealOptions.reduce((result, meal, index) => {
+    result[meal] = index;
+    return result;
+  }, {});
+  const rows = records
+    .filter((record) => selectedMap[record.date])
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date.localeCompare(b.date);
+      const mealDiff = (mealOrder[a.meal] ?? 99) - (mealOrder[b.meal] ?? 99);
+      if (mealDiff) return mealDiff;
+      return `${a.mealTime || ""}`.localeCompare(`${b.mealTime || ""}`);
+    });
+  const foodHeaders = foodFields.map((field) => `<th class="sub-header">${field.label}</th>`).join("");
   const body = rows.map((record) => {
-    const foods = foodFields.map((field) => `<td>${escapeHtml(record.foods[field.key])}</td>`).join("");
+    const foods = foodFields
+      .map((field) => `<td class="food-cell">${escapeHtml(record.foods[field.key])}</td>`)
+      .join("");
+    const level = glucoseLevel(record.glucose);
     return `
       <tr>
-        <td>${escapeHtml(record.date)}</td>
-        <td>${escapeHtml(record.meal)}</td>
-        <td>${escapeHtml(record.mealTime)}</td>
+        <td class="date-cell">${escapeHtml(record.date)}</td>
+        <td class="center-cell">${escapeHtml(record.meal)}</td>
+        <td class="center-cell">${escapeHtml(record.mealTime)}</td>
         ${foods}
-        <td>${escapeHtml(record.measureTime)}</td>
-        <td>${escapeHtml(record.glucose)}</td>
-        <td>${escapeHtml(record.exercise)}</td>
+        <td class="center-cell">${escapeHtml(record.measureTime)}</td>
+        <td class="glucose-cell ${level}">${escapeHtml(record.glucose)}</td>
+        <td class="exercise-cell">${escapeHtml(record.exercise)}</td>
       </tr>
     `;
   }).join("");
+  const exportedAt = new Date().toLocaleString("zh-CN", { hour12: false });
 
   return `
     <html>
       <head>
         <meta charset="UTF-8" />
         <style>
-          body { font-family: Arial, "Microsoft YaHei", sans-serif; }
-          table { border-collapse: collapse; width: 100%; table-layout: fixed; }
-          caption { font-size: 20px; font-weight: 700; padding: 12px; }
-          th, td { border: 1px solid #333; padding: 8px; font-size: 12px; vertical-align: top; mso-number-format:"\\@"; }
-          th { background: #eef5f1; font-weight: 700; text-align: center; }
-          .group { background: #dcebe4; }
+          @page {
+            margin: 0.55in 0.35in;
+            mso-page-orientation: landscape;
+          }
+          body {
+            margin: 0;
+            font-family: "Microsoft YaHei", "SimSun", Arial, sans-serif;
+            color: #111827;
+          }
+          table {
+            border-collapse: collapse;
+            width: 100%;
+            table-layout: fixed;
+            mso-table-lspace: 0pt;
+            mso-table-rspace: 0pt;
+          }
+          caption {
+            caption-side: top;
+            padding: 10px 0 8px;
+            font-size: 20px;
+            font-weight: 700;
+            letter-spacing: 0;
+            text-align: center;
+          }
+          th,
+          td {
+            border: 1px solid #202020;
+            padding: 6px 5px;
+            font-size: 12px;
+            line-height: 1.35;
+            vertical-align: middle;
+            mso-number-format: "\\@";
+            word-break: break-word;
+          }
+          th {
+            font-weight: 700;
+            text-align: center;
+          }
+          .meta-row td {
+            border: none;
+            padding: 0 0 8px;
+            font-size: 11px;
+            color: #4b5563;
+            text-align: right;
+          }
+          .top-header {
+            height: 30px;
+            background: #d9ead3;
+          }
+          .sub-header {
+            height: 30px;
+            background: #eef6e9;
+          }
+          .group {
+            background: #cfe2c3;
+          }
+          .date-cell,
+          .center-cell,
+          .glucose-cell {
+            text-align: center;
+          }
+          .food-cell,
+          .exercise-cell {
+            height: 42px;
+            text-align: left;
+            vertical-align: top;
+          }
+          .glucose-cell {
+            font-weight: 700;
+          }
+          .glucose-cell.high {
+            color: #b91c1c;
+            background: #fee2e2;
+          }
+          .glucose-cell.low {
+            color: #92400e;
+            background: #fef3c7;
+          }
+          .glucose-cell.normal {
+            color: #166534;
+          }
         </style>
       </head>
       <body>
         <table>
           <caption>膳食日志及血糖测量表</caption>
-          <tr>
-            <th rowspan="2">日期</th>
-            <th colspan="2" class="group">餐次/就餐时间</th>
-            <th colspan="7" class="group">所吃食物</th>
-            <th rowspan="2">测量时间</th>
-            <th rowspan="2">血糖值</th>
-            <th rowspan="2">运动时间</th>
+          <colgroup>
+            <col style="width: 92px;" />
+            <col style="width: 58px;" />
+            <col style="width: 72px;" />
+            <col style="width: 120px;" />
+            <col style="width: 120px;" />
+            <col style="width: 120px;" />
+            <col style="width: 120px;" />
+            <col style="width: 130px;" />
+            <col style="width: 110px;" />
+            <col style="width: 110px;" />
+            <col style="width: 78px;" />
+            <col style="width: 78px;" />
+            <col style="width: 150px;" />
+          </colgroup>
+          <tr class="meta-row">
+            <td colspan="13">导出时间：${escapeHtml(exportedAt)}　记录范围：${escapeHtml(selectedDates.join("、"))}</td>
           </tr>
           <tr>
-            <th>餐次</th>
-            <th>就餐时间</th>
+            <th rowspan="2" class="top-header">日期</th>
+            <th colspan="2" class="top-header group">餐次/就餐时间</th>
+            <th colspan="7" class="top-header group">所吃食物</th>
+            <th rowspan="2" class="top-header">测量时间</th>
+            <th rowspan="2" class="top-header">血糖值<br/>mmol/L</th>
+            <th rowspan="2" class="top-header">运动时间</th>
+          </tr>
+          <tr>
+            <th class="sub-header">餐次</th>
+            <th class="sub-header">就餐时间</th>
             ${foodHeaders}
           </tr>
           ${body}
